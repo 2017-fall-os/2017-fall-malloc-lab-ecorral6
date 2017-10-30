@@ -241,6 +241,33 @@ void freeRegion(void *r) {
     }
 }
 
+int adjustSize(BlockPrefix_t *r, int  newSize)
+{
+        BlockPrefix_t *nextPrefix, *nextSuffix, *currentPrefix;
+  currentPrefix = regionToPrefix(r);
+  nextPrefix = getNextPrefix(currentPrefix);
+
+  if(nextPrefix != 0)
+    {
+      void *start = (void *)currentPrefix + prefixSize + suffixSize +      newSize;
+      void *end = (void *) nextSuffix;
+      
+      makeFreeBlock(start, end - start);
+      makeFreeBlock(nextPrefix + newSize, start - (void *)newSize); /* piece being allocated */
+
+      currentPrefix->allocated = 1;
+
+      return 1;
+      
+      
+}
+  else
+    {
+      return 0;
+    }
+  
+}
+
 
 /*
   like realloc(r, newSize), resizeRegion will return a new region of size
@@ -252,21 +279,73 @@ void freeRegion(void *r) {
    in r + s, then just adjust sizes of r & s.
 */
 void *resizeRegion(void *r, size_t newSize) {
-  int oldSize;
+  int oldSize, resized;
+  newSize = align8(newSize);
+
+  BlockPrefix_t* newRegion;
+
+
+  
+  
   if (r != (void *)0)		/* old region existed */
     oldSize = computeUsableSpace(regionToPrefix(r));
   else
     oldSize = 0;		/* non-existant regions have size 0 */
+
   if (oldSize >= newSize)	/* old region is big enough */
     return r;
-  else {			/* allocate new region & copy old data */
+
+  else
+    {
+      resized = adjustSize(newRegion, newSize);
+      if(resized == 0)
+	{
+		/* failed */
+       /* allocate new region & copy old data */
     char *o = (char *)r;	/* treat both regions as char* */
     char *n = (char *)firstFitAllocRegion(newSize); 
     int i;
     for (i = 0; i < oldSize; i++) /* copy byte-by-byte, should use memcpy */
       n[i] = o[i];
     freeRegion(o);		/* free old region */
-    return (void *)n;
+    return (void *)n; return (void *)0;
+  }
+
+      newRegion = prefixToRegion(newRegion);
+      return newRegion;
+  
+    }
+}
+
+/**
+ * Summary of *nextFitAllocRegion
+ * Allocates the next available region uses existing code from function 
+ * firstFitAllocRegion
+ * @param size_t s
+ */
+
+void *nextFitAllocRegion(size_t s)
+{
+   size_t asize = align8(s);
+  BlockPrefix_t *p;
+  if (arenaBegin == 0)		/* arena uninitialized? */
+    initializeArena();
+  p = getNextPrefix(p);		/* find next available prefix*/
+  
+  if (p) {			/* found a block */
+    size_t availSize = computeUsableSpace(p);
+    if (availSize >= (asize + prefixSize + suffixSize + 8)) { /* split block? */
+      void *freeSliverStart = (void *)p + prefixSize + suffixSize + asize;
+      void *freeSliverEnd = computeNextPrefixAddr(p);
+      makeFreeBlock(freeSliverStart, freeSliverEnd - freeSliverStart);
+      makeFreeBlock(p, freeSliverStart - (void *)p); /* piece being allocated */
+    }
+    p->allocated = 1;		/* mark as allocated */
+    return prefixToRegion(p);	/* convert to *region */
+  } else {			/* failed */
+    return (void *)0;
   }
 }
+
+
 
